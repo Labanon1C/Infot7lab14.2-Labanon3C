@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Infinity Chat</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="bg-orb orb-1"></div>
+  <div class="bg-orb orb-2"></div>
+
+  <section id="auth-page" class="auth-page">
+    <div class="auth-card">
+      <div class="brand">
+        <div class="logo">∞</div>
+        <div>
+          <h1>Infinity Chat</h1>
+          <p>Secure Real-Time Messaging System</p>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <button id="login-tab" class="active" onclick="switchAuth('login')">Login</button>
+        <button id="signup-tab" onclick="switchAuth('signup')">Sign Up</button>
+      </div>
+
+      <form id="auth-form" onsubmit="handleAuth(event)">
+        <input id="username" placeholder="Username" required />
+        <input id="password" type="password" placeholder="Password" required />
+        <div id="avatar-picker" class="avatar-picker hidden">
+          <p>Choose Your Avatar</p>
+          <div id="avatar-options" class="avatar-options"></div>
+        </div>
+        <button type="submit" id="auth-btn">Login</button>
+      </form>
+
+      <p id="auth-error"></p>
+    </div>
+  </section>
+
+  <section id="chat-page" class="chat-page hidden">
+    <aside class="sidebar">
+      <div class="profile-box">
+        <img id="my-avatar" class="avatar-lg" />
+        <div class="profile-info">
+          <h2 id="my-name"></h2>
+          <p id="my-bio"></p>
+          <button onclick="openProfile()">View Profile</button>
+        </div>
+        <button class="logout" onclick="logout()">Logout</button>
+      </div>
+
+      <div id="secure-chat-card" class="secure-chat-card pending">
+        <div class="secure-chat-icon">S</div>
+        <div>
+          <h3>Secure Chat</h3>
+          <p id="secure-chat-status">Checking services...</p>
+        </div>
+      </div>
+
+      <div class="side-section">
+        <h3>Rooms & Groups</h3>
+        <button class="room-action active-room" data-room-id="lounge" onclick="openLounge()">Lounge Chat</button>
+        <button class="room-action create-action" onclick="openGroupModal()">Create Group</button>
+        <div id="groups-list" class="group-list"></div>
+      </div>
+
+      <div class="side-section">
+        <h3>Direct Messages</h3>
+        <div id="users-list"></div>
+      </div>
+    </aside>
+
+    <main class="chat-main">
+      <header class="chat-header">
+        <div>
+          <p id="secure-chat-welcome" class="secure-chat-welcome">Checking Secure Chat...</p>
+          <h2 id="room-title">Lounge Chat</h2>
+          <p id="room-subtitle">Real-time public chat room</p>
+        </div>
+        <div class="header-actions">
+          <button id="back-to-list-btn" class="icon-btn mobile-back-btn hidden" type="button" onclick="showConversationList()">Back</button>
+          <button id="room-info-btn" class="icon-btn hidden" type="button" onclick="openGroupInfo()">i</button>
+          <span id="room-status" class="status-dot">Live</span>
+        </div>
+      </header>
+
+      <div id="messages" class="messages"></div>
+
+      <form class="message-form" onsubmit="sendMessage(event)">
+        <input id="message-input" placeholder="Type your message..." autocomplete="off" />
+        <button type="submit">Send</button>
+      </form>
+    </main>
+  </section>
+
+  <div id="profile-modal" class="modal hidden">
+    <div class="modal-card">
+      <h2>Edit Profile</h2>
+
+      <img id="preview-avatar" class="avatar-xl" />
+      <div class="profile-avatar-section">
+        <p>Choose Avatar</p>
+        <div id="profile-avatar-options" class="avatar-options"></div>
+      </div>
+      <textarea id="bio-input" placeholder="Write your bio..."></textarea>
+
+      <div class="modal-actions">
+        <button onclick="saveProfile()">Save</button>
+        <button class="cancel" onclick="closeProfile()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="group-modal" class="modal hidden">
+    <div class="modal-card">
+      <h2>Create Group</h2>
+      <input id="group-name-input" placeholder="Group name" />
+      <div id="group-member-picker" class="member-picker"></div>
+      <p id="group-error" class="modal-error"></p>
+
+      <div class="modal-actions">
+        <button onclick="createGroup()">Create</button>
+        <button class="cancel" onclick="closeGroupModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="group-info-modal" class="modal hidden">
+    <div class="modal-card">
+      <h2 id="group-info-title">Group Info</h2>
+      <div id="group-info-members" class="member-list"></div>
+
+      <div class="modal-actions stack-actions">
+        <button id="delete-group-btn" class="danger hidden" onclick="deleteCurrentGroup()">Delete Group</button>
+        <button class="cancel" onclick="closeGroupInfo()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let authMode = "login";
+    let token = localStorage.getItem("chat_token");
+    let currentUser = null;
+    let socket = null;
+    let currentRoom = "lounge";
+    let uploadedAvatar = "";
+    let allUsers = [];
+    let groups = [];
+    let onlineUsernames = new Set();
+    let notifications = {};
+    let secureChatActive = false;
+    let activeGroup = null;
+    let mobileChatOpen = false;
+    let selectedSignupAvatar = "";
+    let selectedProfileAvatar = "";
+    const signupAvatars = [
+      { name: "Astronaut", bg: "#a7d8ff", face: "#f3f7ff", hair: "#2b3247", suit: "#f7fbff", kind: "helmet" },
+      { name: "Detective Cat", bg: "#ffe08a", face: "#f5d7a3", hair: "#2f6f53", suit: "#2f6f53", kind: "cat-hat" },
+      { name: "Wizard", bg: "#c7d2fe", face: "#f2b890", hair: "#532e93", suit: "#5b21b6", kind: "wizard" },
+      { name: "Royal Corgi", bg: "#9be7a8", face: "#d79052", hair: "#8a4f2b", suit: "#7dd3fc", kind: "crown-dog" },
+      { name: "Robot", bg: "#8093dc", face: "#2f3562", hair: "#0f172a", suit: "#e0e7ff", kind: "robot" },
+      { name: "Lion", bg: "#ffd28a", face: "#d99035", hair: "#9a4f20", suit: "#fbbf24", kind: "lion" },
+      { name: "Pirate", bg: "#f6b26b", face: "#8b5a3c", hair: "#1f2937", suit: "#1f2937", kind: "pirate" },
+      { name: "Green Hero", bg: "#b7f7c0", face: "#91d36f", hair: "#172554", suit: "#65a30d", kind: "leaf" },
+      { name: "Diver", bg: "#ffd85f", face: "#f4c083", hair: "#3b2f2f", suit: "#334155", kind: "goggles" },
+      { name: "Cloud Guy", bg: "#c4b5fd", face: "#8b5e46", hair: "#111827", suit: "#fde68a", kind: "beard" },
+      { name: "Bee", bg: "#fef08a", face: "#ffd166", hair: "#111827", suit: "#facc15", kind: "bee" },
+      { name: "Bat", bg: "#c084fc", face: "#57307d", hair: "#1f1538", suit: "#4c1d95", kind: "bat" },
+      { name: "Fox Kid", bg: "#86efac", face: "#f59e0b", hair: "#b45309", suit: "#fed7aa", kind: "fox" },
+      { name: "Princess", bg: "#fde68a", face: "#efb789", hair: "#1f2937", suit: "#f9a8d4", kind: "princess" },
+      { name: "Knight", bg: "#ddd6fe", face: "#d1d5db", hair: "#475569", suit: "#64748b", kind: "knight" },
+      { name: "Pumpkin", bg: "#fed7aa", face: "#f97316", hair: "#14532d", suit: "#fb923c", kind: "pumpkin" },
+      { name: "Penguin", bg: "#bfdbfe", face: "#1e3a8a", hair: "#172554", suit: "#dbeafe", kind: "penguin" },
+      { name: "Mummy", bg: "#fde68a", face: "#f8f0cf", hair: "#d6c89d", suit: "#faf3d3", kind: "mummy" },
+      { name: "Fluffy Monster", bg: "#f0abfc", face: "#d946ef", hair: "#c026d3", suit: "#f5d0fe", kind: "monster" },
+      { name: "Moon Girl", bg: "#bfdbfe", face: "#efbd8b", hair: "#f8fafc", suit: "#60a5fa", kind: "moon" },
+      { name: "Panda", bg: "#bbf7d0", face: "#f8fafc", hair: "#111827", suit: "#dcfce7", kind: "panda" },
+      { name: "Gnome", bg: "#fef3c7", face: "#efbd8b", hair: "#f8fafc", suit: "#ef4444", kind: "gnome" },
+      { name: "Alien", bg: "#fde68a", face: "#84cc16", hair: "#365314", suit: "#a3e635", kind: "alien" },
+      { name: "Red Panda", bg: "#bbf7d0", face: "#f97316", hair: "#9a3412", suit: "#fed7aa", kind: "red-panda" }
+    ];
+
+    function avatarDetails(avatar) {
+      const eye = '<circle cx="49" cy="54" r="4.5" fill="#182033"/><circle cx="71" cy="54" r="4.5" fill="#182033"/>';
+      const smile = '<path d="M50 68c7 7 14 7 21 0" fill="none" stroke="#5a2f2a" stroke-width="4" stroke-linecap="round"/>';
+
+      if (avatar.kind === "helmet") {
+        return '<circle cx="60" cy="54" r="36" fill="none" stroke="#f8fafc" stroke-width="10"/><rect x="32" y="35" width="56" height="46" rx="19" fill="#e0f2fe" opacity=".76"/>' + eye + smile + '<circle cx="83" cy="34" r="5" fill="#1e3a8a"/><path d="M34 92h52" stroke="#ef4444" stroke-width="5" stroke-linecap="round"/>';
+      }
+
+      if (avatar.kind === "cat-hat") {
+        return '<path d="M33 53l8-18 12 15M87 53L79 35 67 50" fill="#f5d7a3"/><path d="M30 36c17 9 42 8 59-1l-7-12c-15 4-30 5-45 0z" fill="#1f7a5c"/>' + eye + smile + '<path d="M55 61h10l-5 6z" fill="#8b4513"/><path d="M36 31h55" stroke="#fbbf24" stroke-width="5" stroke-linecap="round"/>';
+      }
+
+      if (avatar.kind === "wizard") {
+        return '<path d="M35 47L58 8l27 42z" fill="#6d28d9"/><circle cx="72" cy="27" r="5" fill="#fde68a"/><path d="M38 42c13 9 31 9 45 0" fill="#a78bfa"/>' + eye + smile + '<path d="M44 73c8 16 24 16 32 0" fill="#f8fafc" opacity=".9"/>';
+      }
+
+      if (avatar.kind === "robot") {
+        return '<rect x="32" y="28" width="56" height="52" rx="14" fill="#30365f"/><rect x="42" y="43" width="36" height="19" rx="8" fill="#94a3b8"/><circle cx="51" cy="53" r="4" fill="#f8fafc"/><circle cx="69" cy="53" r="4" fill="#f8fafc"/><path d="M48 71h24" stroke="#c4b5fd" stroke-width="4" stroke-linecap="round"/><path d="M60 28V17" stroke="#30365f" stroke-width="5"/><circle cx="60" cy="15" r="5" fill="#c4b5fd"/>';
+      }
+
+      if (avatar.kind === "lion") {
+        return '<circle cx="60" cy="54" r="38" fill="#9a4f20"/><circle cx="60" cy="55" r="27" fill="#d99035"/>' + eye + '<path d="M55 62h10l-5 8z" fill="#5a2f2a"/><path d="M47 72c9 7 17 7 26 0" fill="none" stroke="#5a2f2a" stroke-width="4" stroke-linecap="round"/>';
+      }
+
+      if (avatar.kind === "pirate") {
+        return '<path d="M29 43c15-22 50-22 62 0-18 10-43 10-62 0z" fill="#111827"/><path d="M36 37l50-12" stroke="#c2410c" stroke-width="6" stroke-linecap="round"/><circle cx="60" cy="55" r="28" fill="#8b5a3c"/><path d="M45 52h16" stroke="#111827" stroke-width="7" stroke-linecap="round"/><circle cx="72" cy="54" r="4" fill="#111827"/><path d="M52 69c8 6 16 6 24 0" stroke="#2f1b12" stroke-width="4" fill="none" stroke-linecap="round"/>';
+      }
+
+      if (avatar.kind === "bee") {
+        return '<ellipse cx="46" cy="40" rx="13" ry="18" fill="#e0f2fe" opacity=".8"/><ellipse cx="74" cy="40" rx="13" ry="18" fill="#e0f2fe" opacity=".8"/><circle cx="60" cy="57" r="29" fill="#facc15"/><path d="M34 49h52M34 65h52" stroke="#111827" stroke-width="7"/>' + eye + smile + '<path d="M49 29c-7-11-14-11-18-3M71 29c7-11 14-11 18-3" stroke="#111827" stroke-width="4" fill="none" stroke-linecap="round"/>';
+      }
+
+      if (avatar.kind === "panda") {
+        return '<circle cx="42" cy="35" r="12" fill="#111827"/><circle cx="78" cy="35" r="12" fill="#111827"/><circle cx="60" cy="58" r="31" fill="#f8fafc"/><ellipse cx="48" cy="55" rx="10" ry="12" fill="#111827"/><ellipse cx="72" cy="55" rx="10" ry="12" fill="#111827"/><circle cx="48" cy="55" r="3" fill="#f8fafc"/><circle cx="72" cy="55" r="3" fill="#f8fafc"/><path d="M55 66h10l-5 7z" fill="#111827"/><path d="M51 76c7 5 11 5 18 0" stroke="#111827" stroke-width="4" fill="none" stroke-linecap="round"/>';
+      }
+
+      if (avatar.kind === "alien") {
+        return '<ellipse cx="60" cy="56" rx="32" ry="28" fill="#84cc16"/><path d="M45 37c-10-18-15-18-18-8M75 37c10-18 15-18 18-8" stroke="#365314" stroke-width="4" fill="none" stroke-linecap="round"/><ellipse cx="48" cy="55" rx="8" ry="11" fill="#1f2937"/><ellipse cx="72" cy="55" rx="8" ry="11" fill="#1f2937"/><path d="M49 73c8 6 14 6 22 0" stroke="#365314" stroke-width="4" fill="none" stroke-linecap="round"/>';
+      }
+
+      if (avatar.kind === "mummy") {
+        return '<circle cx="60" cy="56" r="31" fill="#f8f0cf"/><path d="M31 44h58M29 56h62M35 70h50" stroke="#d6c89d" stroke-width="8"/><rect x="39" y="46" width="42" height="22" rx="10" fill="#fef9c3"/>' + eye + smile;
+      }
+
+      if (avatar.kind === "monster") {
+        return '<circle cx="60" cy="58" r="33" fill="#d946ef"/><circle cx="49" cy="52" r="5" fill="#fef9c3"/><circle cx="72" cy="52" r="5" fill="#fef9c3"/><path d="M45 72c10 8 20 8 30 0" stroke="#7e22ce" stroke-width="5" fill="none" stroke-linecap="round"/><path d="M38 30l8 13M58 24l2 16M82 31l-8 12" stroke="#c026d3" stroke-width="7" stroke-linecap="round"/>';
+      }
+
+      if (avatar.kind === "penguin") {
+        return '<ellipse cx="60" cy="58" rx="31" ry="34" fill="#1e3a8a"/><ellipse cx="60" cy="65" rx="21" ry="24" fill="#dbeafe"/><circle cx="50" cy="52" r="4" fill="#111827"/><circle cx="70" cy="52" r="4" fill="#111827"/><path d="M54 61h12l-6 8z" fill="#f97316"/>';
+      }
+
+      if (avatar.kind === "knight") {
+        return '<path d="M32 34h56v34c0 17-13 28-28 28S32 85 32 68z" fill="#94a3b8"/><path d="M43 47h34" stroke="#334155" stroke-width="7" stroke-linecap="round"/><path d="M59 28h24v17" fill="none" stroke="#fbbf24" stroke-width="6" stroke-linecap="round"/><circle cx="50" cy="59" r="4" fill="#111827"/><circle cx="70" cy="59" r="4" fill="#111827"/>';
+      }
+
+      if (avatar.kind === "pumpkin") {
+        return '<circle cx="60" cy="60" r="31" fill="#f97316"/><path d="M60 29c-2-9 3-16 11-19" stroke="#14532d" stroke-width="7" fill="none" stroke-linecap="round"/><path d="M39 54l13-7 2 13zM81 54l-13-7-2 13z" fill="#321006"/><path d="M46 72c10 8 18 8 28 0" stroke="#321006" stroke-width="5" fill="none" stroke-linecap="round"/>';
+      }
+
+      if (avatar.kind === "red-panda") {
+        return '<path d="M34 51L26 30l22 11M86 51l8-21-22 11" fill="#9a3412"/><circle cx="60" cy="58" r="30" fill="#f97316"/><circle cx="48" cy="58" r="10" fill="#fff7ed"/><circle cx="72" cy="58" r="10" fill="#fff7ed"/><circle cx="48" cy="58" r="4" fill="#111827"/><circle cx="72" cy="58" r="4" fill="#111827"/><path d="M54 68h12l-6 8z" fill="#7c2d12"/>';
+      }
+
+      if (avatar.kind === "crown-dog" || avatar.kind === "fox") {
+        const crown = avatar.kind === "crown-dog" ? '<path d="M43 32l9-12 8 12 9-12 8 12v9H43z" fill="#facc15"/>' : '';
+        return crown + '<path d="M35 53L27 32l21 12M85 53l8-21-21 12" fill="' + avatar.hair + '"/><circle cx="60" cy="58" r="30" fill="' + avatar.face + '"/>' + eye + '<path d="M54 65h12l-6 8z" fill="#7c2d12"/><path d="M50 77c7 5 13 5 20 0" stroke="#7c2d12" stroke-width="4" fill="none" stroke-linecap="round"/>';
+      }
+
+      if (avatar.kind === "gnome") {
+        return '<path d="M32 52L60 14l28 38z" fill="#ef4444"/><circle cx="60" cy="60" r="27" fill="#efbd8b"/><path d="M40 71c12 19 28 19 40 0" fill="#f8fafc"/>' + eye + '<circle cx="60" cy="64" r="6" fill="#e99b73"/>';
+      }
+
+      const extra = {
+        leaf: '<path d="M41 36c16-22 41-7 37 18-19 0-33-5-37-18z" fill="#65a30d"/>',
+        bat: '<path d="M32 42l14-16 14 14 14-14 14 16v30H32z" fill="#2e1065"/>',
+        princess: '<path d="M42 35l8-14 10 14 10-14 8 14v10H42z" fill="#facc15"/>',
+        moon: '<path d="M41 42c14-24 43-20 52 1-18 4-37 2-52-1z" fill="#f8fafc"/>',
+        beard: '<path d="M35 58c0 25 50 25 50 0-15 10-35 10-50 0z" fill="#111827"/>'
+      }[avatar.kind] || '<path d="M35 42c13-18 41-18 51 0-18 6-34 6-51 0z" fill="' + avatar.hair + '"/>';
+
+      return extra + '<circle cx="60" cy="56" r="29" fill="' + avatar.face + '"/>' + eye + smile;
+    }
+
+    function makeAvatarDataUrl(avatar) {
+      const svg = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+          <defs>
+            <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#120022" flood-opacity=".22"/>
+            </filter>
+          </defs>
+          <circle cx="60" cy="60" r="56" fill="${avatar.bg}"/>
+          <path d="M25 116c4-28 66-28 70 0z" fill="${avatar.suit}"/>
+          ${avatarDetails(avatar)}
+          <circle cx="60" cy="60" r="52" fill="none" stroke="#ffffff" stroke-width="6" opacity=".88" filter="url(#shadow)"/>
+        </svg>
+      `;
+
+      return "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg.trim());
+    }
+
+    signupAvatars.forEach(avatar => {
+      avatar.src = makeAvatarDataUrl(avatar);
+    });
+    selectedSignupAvatar = signupAvatars[0].src;
+
+    function switchAuth(mode) {
+      authMode = mode;
+      document.getElementById("login-tab").classList.toggle("active", mode === "login");
+      document.getElementById("signup-tab").classList.toggle("active", mode === "signup");
+      document.getElementById("auth-btn").textContent = mode === "login" ? "Login" : "Create Account";
+      document.getElementById("avatar-picker").classList.toggle("hidden", mode !== "signup");
+      document.getElementById("auth-error").textContent = "";
+    }
+
+    function renderSignupAvatars() {
+      const box = document.getElementById("avatar-options");
+      box.innerHTML = "";
+
+      signupAvatars.forEach(avatar => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "avatar-option";
+        button.title = avatar.name;
+        button.setAttribute("aria-label", avatar.name);
+        button.classList.toggle("selected", avatar.src === selectedSignupAvatar);
+        button.innerHTML = `<img src="${avatar.src}" alt="${avatar.name}" />`;
+
+        button.addEventListener("click", () => {
+          selectedSignupAvatar = avatar.src;
+          renderSignupAvatars();
+        });
+
+        box.appendChild(button);
+      });
+    }
+
+    function renderProfileAvatars() {
+      const box = document.getElementById("profile-avatar-options");
+      box.innerHTML = "";
+
+      signupAvatars.forEach(avatar => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "avatar-option";
+        button.title = avatar.name;
+        button.setAttribute("aria-label", avatar.name);
+        button.classList.toggle("selected", avatar.src === selectedProfileAvatar);
+        button.innerHTML = `<img src="${avatar.src}" alt="${avatar.name}" />`;
+
+        button.addEventListener("click", () => {
+          selectedProfileAvatar = avatar.src;
+          uploadedAvatar = avatar.src;
+          document.getElementById("preview-avatar").src = avatar.src;
+          renderProfileAvatars();
+        });
+
+        box.appendChild(button);
+      });
+    }
+
+    async function handleAuth(e) {
+      e.preventDefault();
+
+      const username = document.getElementById("username").value;
+      const password = document.getElementById("password").value;
+
+      const url = authMode === "login" ? "/api/auth/login" : "/api/auth/signup";
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username,
+          password,
+          avatar: authMode === "signup" ? selectedSignupAvatar : undefined
+        })
+      });
+
+      const data = await res.json();
+
+      if (!data.success) {
+        document.getElementById("auth-error").textContent = data.error || "Failed.";
+        return;
+      }
+
+      token = data.token;
+      currentUser = data.user;
+      localStorage.setItem("chat_token", token);
+
+      showChat();
+    }
+
+    function escapeHtml(value) {
+      return String(value || "").replace(/[&<>"']/g, char => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      }[char]));
+    }
+
+    function getPrivateRoomId(username) {
+      return ["dm", ...[currentUser.username, username].sort()].join(":");
+    }
+
+    function getUser(username) {
+      return allUsers.find(user => user.username === username);
+    }
+
+    function getGroup(roomId) {
+      return groups.find(group => group._id === roomId);
+    }
+
+    function setHeader(title, subtitle, status, isGroup) {
+      document.getElementById("room-title").textContent = title;
+      document.getElementById("room-subtitle").textContent = subtitle;
+      document.getElementById("room-status").textContent = status;
+      document.getElementById("room-info-btn").classList.toggle("hidden", !isGroup);
+    }
+
+    function isMobileView() {
+      return window.matchMedia("(max-width: 850px)").matches;
+    }
+
+    function setMobileChatOpen(open) {
+      mobileChatOpen = open;
+      document.getElementById("chat-page").classList.toggle("mobile-chat-open", open);
+      document.getElementById("back-to-list-btn").classList.toggle("hidden", !open);
+    }
+
+    function showConversationList() {
+      setMobileChatOpen(false);
+    }
+
+    function showActiveChat() {
+      if (isMobileView()) {
+        setMobileChatOpen(true);
+      }
+    }
+
+    async function loadSecurityStatus() {
+      const card = document.getElementById("secure-chat-card");
+      const status = document.getElementById("secure-chat-status");
+      const welcome = document.getElementById("secure-chat-welcome");
+
+      try {
+        const res = await fetch("/api/security/status");
+        const data = await res.json();
+
+        secureChatActive = Boolean(data.secureChat);
+        card.classList.toggle("active", secureChatActive);
+        card.classList.toggle("pending", !secureChatActive);
+        status.textContent = secureChatActive ? "MongoDB and Redis connected" : data.message;
+        welcome.textContent = secureChatActive
+          ? `Welcome to Secure Chat, ${currentUser.username}`
+          : "Secure Chat is connecting...";
+        welcome.classList.toggle("active", secureChatActive);
+      } catch {
+        secureChatActive = false;
+        card.classList.remove("active");
+        card.classList.add("pending");
+        status.textContent = "Security status unavailable";
+        welcome.textContent = "Secure Chat is unavailable";
+        welcome.classList.remove("active");
+      }
+    }
+
+    async function showChat() {
+      document.getElementById("auth-page").classList.add("hidden");
+      document.getElementById("chat-page").classList.remove("hidden");
+
+      if (!currentUser) {
+        const res = await fetch("/api/auth/me", {
+          headers: { Authorization: "Bearer " + token }
+        });
+        const data = await res.json();
+        currentUser = data.user;
+      }
+
+      document.getElementById("my-name").textContent = currentUser.username;
+      document.getElementById("my-avatar").src = currentUser.avatar;
+      document.getElementById("my-bio").textContent = currentUser.bio || "Infinity Chat user";
+
+      await loadSecurityStatus();
+      await loadUsers();
+      await loadGroups();
+      connectSocket();
+      if (isMobileView()) {
+        currentRoom = "lounge";
+        activeGroup = null;
+        setHeader("Lounge Chat", "Real-time public chat room", "Live", false);
+        markActiveItems();
+        showConversationList();
+      } else {
+        openLounge();
+      }
+    }
+
+    async function loadUsers() {
+      const res = await fetch("/api/users", {
+        headers: { Authorization: "Bearer " + token }
+      });
+
+      const data = await res.json();
+      allUsers = data.users || [];
+      onlineUsernames = new Set(allUsers.filter(user => user.online).map(user => user.username));
+      renderUsers();
+      renderMemberPicker();
+    }
+
+    async function loadGroups() {
+      const res = await fetch("/api/groups", {
+        headers: { Authorization: "Bearer " + token }
+      });
+
+      const data = await res.json();
+      groups = data.groups || [];
+      renderGroups();
+
+      if (currentRoom.startsWith("g_") && !groups.some(group => group._id === currentRoom)) {
+        openLounge();
+      }
+    }
+
+    async function loadRoomHistory(roomId) {
+      const res = await fetch(`/api/messages/${encodeURIComponent(roomId)}`, {
+        headers: { Authorization: "Bearer " + token }
+      });
+
+      if (!res.ok) return;
+
+      const data = await res.json();
+      const box = document.getElementById("messages");
+      box.innerHTML = "";
+      (data.messages || []).forEach(renderMessage);
+    }
+
+    function openLounge() {
+      currentRoom = "lounge";
+      activeGroup = null;
+      clearNotifications("lounge");
+      setHeader("Lounge Chat", "Real-time public chat room", "Live", false);
+      markActiveItems();
+      loadRoomHistory(currentRoom);
+      showActiveChat();
+    }
+
+    function openDirectChat(username) {
+      const user = getUser(username);
+      currentRoom = getPrivateRoomId(username);
+      activeGroup = null;
+      clearNotifications(currentRoom);
+      setHeader(
+        username,
+        user?.bio || "Direct message",
+        onlineUsernames.has(username) ? "Online" : "Offline",
+        false
+      );
+      markActiveItems();
+      loadRoomHistory(currentRoom);
+      showActiveChat();
+    }
+
+    function openGroupChat(groupId) {
+      activeGroup = getGroup(groupId);
+      if (!activeGroup) return;
+
+      currentRoom = groupId;
+      clearNotifications(currentRoom);
+      setHeader(
+        activeGroup.name,
+        `${activeGroup.members.length} member${activeGroup.members.length === 1 ? "" : "s"}`,
+        activeGroup.admin === currentUser.username || activeGroup.creator === currentUser.username ? "Admin" : "Member",
+        true
+      );
+      markActiveItems();
+      loadRoomHistory(currentRoom);
+      showActiveChat();
+    }
+
+    function renderUsers() {
+      const box = document.getElementById("users-list");
+      box.innerHTML = "";
+
+      allUsers
+        .filter(user => user.username !== currentUser.username)
+        .forEach(user => {
+          const isOnline = onlineUsernames.has(user.username);
+          const roomId = getPrivateRoomId(user.username);
+          const unreadCount = notifications[roomId]?.messages.length || 0;
+          const div = document.createElement("button");
+          div.type = "button";
+          div.className = `user-item user-button ${isOnline ? "online" : "offline"}`;
+          div.dataset.roomId = roomId;
+          div.onclick = () => openDirectChat(user.username);
+          div.innerHTML = `
+            <img src="${user.avatar}" alt="${escapeHtml(user.username)}" />
+            <div>
+              <strong>${escapeHtml(user.username)}</strong>
+              <small>${isOnline ? "Online" : "Offline"}</small>
+            </div>
+            <span class="presence-dot ${isOnline ? "is-online" : "is-offline"}" aria-label="${isOnline ? "Online" : "Offline"}"></span>
+            ${unreadCount ? `<span class="unread-badge">${unreadCount}</span>` : ""}
+          `;
+          box.appendChild(div);
+        });
+    }
+
+    function renderGroups() {
+      const box = document.getElementById("groups-list");
+      box.innerHTML = "";
+
+      if (!groups.length) {
+        box.innerHTML = '<div class="empty-state">No groups yet</div>';
+        return;
+      }
+
+      groups.forEach(group => {
+        const unreadCount = notifications[group._id]?.messages.length || 0;
+        const div = document.createElement("button");
+        div.type = "button";
+        div.className = "user-item user-button group-item";
+        div.dataset.roomId = group._id;
+        div.onclick = () => openGroupChat(group._id);
+        div.innerHTML = `
+          <img src="${group.avatar}" alt="${escapeHtml(group.name)}" />
+          <div>
+            <strong>${escapeHtml(group.name)}</strong>
+            <small>${group.members.length} members</small>
+          </div>
+          ${unreadCount ? `<span class="unread-badge">${unreadCount}</span>` : ""}
+        `;
+        box.appendChild(div);
+      });
+
+      if (activeGroup) {
+        activeGroup = getGroup(activeGroup._id);
+      }
+      markActiveItems();
+    }
+
+    function markActiveItems() {
+      document.querySelectorAll("[data-room-id]").forEach(item => {
+        item.classList.toggle("active-room", item.dataset.roomId === currentRoom);
+      });
+    }
+
+    function connectSocket() {
+      if (socket) socket.close();
+      const socketProtocol = location.protocol === "https:" ? "wss:" : "ws:";
+      socket = new WebSocket(`${socketProtocol}//${location.host}?token=${token}`);
+
+      socket.onmessage = e => {
+        const data = JSON.parse(e.data);
+
+        if (data.type === "online_list") {
+          onlineUsernames = new Set((data.users || []).map(user => user.username));
+          allUsers = allUsers.map(user => ({ ...user, online: onlineUsernames.has(user.username) }));
+          renderUsers();
+          updateCurrentStatus();
+        }
+
+        if (data.type === "history" && data.roomId === currentRoom) {
+          document.getElementById("messages").innerHTML = "";
+          data.messages.forEach(renderMessage);
+        }
+
+        if (data.type === "groups_updated") {
+          loadGroups();
+        }
+
+        if (data.type === "group_deleted") {
+          loadGroups();
+          if (currentRoom === data.roomId) {
+            openLounge();
+          }
+        }
+
+        if (data.type === "chat") {
+          if (data.roomId === currentRoom) {
+            renderMessage(data);
+          } else if (data.username !== currentUser.username) {
+            addNotification(data);
+          }
+        }
+      };
+    }
+
+    function updateCurrentStatus() {
+      if (!currentRoom.startsWith("dm:")) return;
+      const username = currentRoom.split(":").find(name => name !== "dm" && name !== currentUser.username);
+      document.getElementById("room-status").textContent = onlineUsernames.has(username) ? "Online" : "Offline";
+    }
+
+    function getNotificationTitle(msg) {
+      if (msg.roomId.startsWith("dm:")) return msg.username;
+      const group = getGroup(msg.roomId);
+      return group?.name || msg.roomTitle || "Group message";
+    }
+
+    function addNotification(msg) {
+      if (!notifications[msg.roomId]) {
+        notifications[msg.roomId] = {
+          title: getNotificationTitle(msg),
+          messages: []
+        };
+      }
+
+      notifications[msg.roomId].messages.unshift(msg);
+      notifications[msg.roomId].messages = notifications[msg.roomId].messages.slice(0, 3);
+      renderNotifications();
+    }
+
+    function clearNotifications(roomId) {
+      delete notifications[roomId];
+      renderNotifications();
+    }
+
+    function renderNotifications() {
+      renderUsers();
+      renderGroups();
+    }
+
+    function renderMessage(msg) {
+      const box = document.getElementById("messages");
+      const div = document.createElement("div");
+
+      const mine = msg.username === currentUser.username;
+      div.className = mine ? "message mine" : "message";
+
+      const time = new Date(msg.timestamp).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+
+      div.innerHTML = `
+        <img src="${msg.avatar}" alt="${escapeHtml(msg.username)}" />
+        <div class="bubble">
+          <div class="msg-top">
+            <strong>${escapeHtml(msg.username)}</strong>
+            <span>${time}</span>
+          </div>
+          <p>${escapeHtml(msg.message)}</p>
+        </div>
+      `;
+
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function sendMessage(e) {
+      e.preventDefault();
+
+      const input = document.getElementById("message-input");
+      const message = input.value.trim();
+
+      if (!message || !socket || socket.readyState !== WebSocket.OPEN) return;
+
+      socket.send(JSON.stringify({
+        type: "chat",
+        roomId: currentRoom,
+        message
+      }));
+
+      input.value = "";
+    }
+
+    function openProfile() {
+      uploadedAvatar = currentUser.avatar;
+      selectedProfileAvatar = currentUser.avatar;
+      document.getElementById("preview-avatar").src = currentUser.avatar;
+      document.getElementById("bio-input").value = currentUser.bio || "";
+      renderProfileAvatars();
+      document.getElementById("profile-modal").classList.remove("hidden");
+    }
+
+    function closeProfile() {
+      document.getElementById("profile-modal").classList.add("hidden");
+    }
+
+    async function saveProfile() {
+      const bio = document.getElementById("bio-input").value;
+
+      const res = await fetch("/api/profile", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token
+        },
+        body: JSON.stringify({
+          avatar: uploadedAvatar,
+          bio
+        })
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        currentUser = data.user;
+        document.getElementById("my-avatar").src = currentUser.avatar;
+        document.getElementById("my-name").textContent = currentUser.username;
+        document.getElementById("my-bio").textContent = currentUser.bio;
+        closeProfile();
+        loadUsers();
+      }
+    }
+
+    function openGroupModal() {
+      document.getElementById("group-name-input").value = "";
+      document.getElementById("group-error").textContent = "";
+      renderMemberPicker();
+      document.getElementById("group-modal").classList.remove("hidden");
+    }
+
+    function closeGroupModal() {
+      document.getElementById("group-modal").classList.add("hidden");
+    }
+
+    function renderMemberPicker() {
+      const box = document.getElementById("group-member-picker");
+      if (!box || !currentUser) return;
+
+      const users = allUsers.filter(user => user.username !== currentUser.username);
+      if (!users.length) {
+        box.innerHTML = '<div class="empty-state">No other users yet</div>';
+        return;
+      }
+
+      box.innerHTML = users.map(user => `
+        <label class="member-option">
+          <input type="checkbox" value="${escapeHtml(user.username)}" />
+          <img src="${user.avatar}" alt="${escapeHtml(user.username)}" />
+          <span>${escapeHtml(user.username)}</span>
+          <small>${onlineUsernames.has(user.username) ? "Online" : "Offline"}</small>
+        </label>
+      `).join("");
+    }
+
+    async function createGroup() {
+      const name = document.getElementById("group-name-input").value.trim();
+      const members = Array.from(document.querySelectorAll("#group-member-picker input:checked"))
+        .map(input => input.value);
+
+      if (!name) {
+        document.getElementById("group-error").textContent = "Group name is required.";
+        return;
+      }
+
+      const res = await fetch("/api/groups", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token
+        },
+        body: JSON.stringify({ name, members })
+      });
+
+      const data = await res.json();
+      if (!data.success) {
+        document.getElementById("group-error").textContent = data.error || "Could not create group.";
+        return;
+      }
+
+      closeGroupModal();
+      await loadGroups();
+      openGroupChat(data.group._id);
+    }
+
+    function openGroupInfo() {
+      activeGroup = getGroup(currentRoom);
+      if (!activeGroup) return;
+
+      const isAdmin = (activeGroup.admin || activeGroup.creator) === currentUser.username;
+      document.getElementById("group-info-title").textContent = activeGroup.name;
+      document.getElementById("delete-group-btn").classList.toggle("hidden", !isAdmin);
+
+      const box = document.getElementById("group-info-members");
+      box.innerHTML = activeGroup.members.map(username => {
+        const user = getUser(username) || { username, avatar: activeGroup.avatar };
+        const isOwner = username === (activeGroup.admin || activeGroup.creator);
+        const canRemove = isAdmin && username !== currentUser.username;
+
+        return `
+          <div class="member-row">
+            <img src="${user.avatar}" alt="${escapeHtml(username)}" />
+            <div>
+              <strong>${escapeHtml(username)}</strong>
+              <small>${isOwner ? "Admin" : onlineUsernames.has(username) ? "Online" : "Offline"}</small>
+            </div>
+            ${canRemove ? `<button class="small-btn danger" onclick="removeGroupMember('${escapeHtml(username)}')">Remove</button>` : ""}
+          </div>
+        `;
+      }).join("");
+
+      document.getElementById("group-info-modal").classList.remove("hidden");
+    }
+
+    function closeGroupInfo() {
+      document.getElementById("group-info-modal").classList.add("hidden");
+    }
+
+    async function removeGroupMember(username) {
+      if (!activeGroup) return;
+
+      const res = await fetch(`/api/groups/${encodeURIComponent(activeGroup._id)}/members/${encodeURIComponent(username)}`, {
+        method: "DELETE",
+        headers: { Authorization: "Bearer " + token }
+      });
+
+      if (res.ok) {
+        await loadGroups();
+        activeGroup = getGroup(activeGroup._id);
+        if (activeGroup) openGroupInfo();
+      }
+    }
+
+    async function deleteCurrentGroup() {
+      if (!activeGroup || !confirm(`Delete ${activeGroup.name}?`)) return;
+
+      const res = await fetch(`/api/groups/${encodeURIComponent(activeGroup._id)}`, {
+        method: "DELETE",
+        headers: { Authorization: "Bearer " + token }
+      });
+
+      if (res.ok) {
+        closeGroupInfo();
+        await loadGroups();
+        openLounge();
+      }
+    }
+
+    async function logout() {
+      await fetch("/api/auth/logout", { method: "POST" });
+      localStorage.removeItem("chat_token");
+      location.reload();
+    }
+
+    if (token) {
+      showChat().catch(() => {
+        localStorage.removeItem("chat_token");
+      });
+    }
+
+    renderSignupAvatars();
+  </script>
+</body>
+</html>
